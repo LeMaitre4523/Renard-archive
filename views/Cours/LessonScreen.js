@@ -98,6 +98,8 @@ function LessonScreen({ route, navigation }) {
 
   const appctx = useAppContext();
 
+  console.log(lesson);
+
   React.useLayoutEffect(() => {
     setBlurPic1(blurPics[Math.floor(Math.random() * 6) + 1]);
     setBlurPic2(blurPics[Math.floor(Math.random() * 6) + 1]);

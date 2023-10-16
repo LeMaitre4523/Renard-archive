@@ -48,6 +48,8 @@ import ListItem from '../components/ListItem';
 
 import { useAppContext } from '../utils/AppContext';
 
+import * as BaseTimetable from '../database/BaseTimetable'; 
+
 const calcDate = (date, days) => {
   const result = new Date(date);
   result.setDate(result.getDate() + days);
@@ -311,31 +313,30 @@ Statut : ${cours.status || 'Aucun'}
   const updateCoursForDate = async (dateOffset, setDate) => {
     const newDate = calcDate(setDate, dateOffset);
     if (!coursRef.current[newDate.toLocaleDateString()]) {
-      // load cache before fetching
-      const cacheResult = await AsyncStorage.getItem('@cours');
-      if (cacheResult) {
-        const cache = JSON.parse(cacheResult);
-        if (cache[newDate.toLocaleDateString()]) {
-          setCours((prevCours) => ({
-            ...prevCours,
-            [newDate.toLocaleDateString()]: cache[newDate.toLocaleDateString()],
-          }));
-        }
-      }
-
-      // fetch
-      const result = await appctx.dataprovider.getTimetable(newDate);
+      // fetch database
+      const result = await BaseTimetable.GetTimetable(newDate);
       setCours((prevCours) => ({
         ...prevCours,
         [newDate.toLocaleDateString()]: result,
       }));
 
-      // save to cache
-      AsyncStorage.getItem('@cours').then((value) => {
-        const c = JSON.parse(value) || {};
-        c[newDate.toLocaleDateString()] = result;
-        AsyncStorage.setItem('@cours', JSON.stringify(cours));
-      });
+      console.log('Fetched from database');
+      console.log(result);
+
+      // fetch api
+      try {
+        BaseTimetable.SyncTimetable(result).then(() => {
+          BaseTimetable.GetTimetable(newDate).then((value) => {
+            setCours((prevCours) => ({
+              ...prevCours,
+              [newDate.toLocaleDateString()]: value,
+            }));
+          });
+        });
+      }
+      catch (e) {
+        console.log(e);
+      }
     }
   };
 
@@ -353,9 +354,16 @@ Statut : ${cours.status || 'Aucun'}
     const newDate = calcDate(calendarDate, 0);
     const result = await appctx.dataprovider.getTimetable(newDate, true);
 
-    const newCours = cours;
-    newCours[newDate.toLocaleDateString()] = result;
-    setCours(newCours);
+    BaseTimetable.SyncTimetable(result).then(() => {
+      BaseTimetable.GetTimetable(newDate).then((value) => {
+        console.log('Fetched from API');
+        console.log(value);
+        
+        let newCours = cours;
+        newCours[newDate.toLocaleDateString()] = value;
+        setCours(newCours);
+      });
+    });
   };
 
   useEffect(() => {

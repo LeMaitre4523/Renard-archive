@@ -32,6 +32,11 @@ import NativeList from '../../components/NativeList';
 import NativeItem from '../../components/NativeItem';
 import NativeText from '../../components/NativeText';
 
+// SQLite
+import * as SQLite from 'expo-sqlite';
+const db = SQLite.openDatabase('PapillonDatabase.db')
+
+
 function SettingsScreen({ navigation }) {
   const UIColors = GetUIColors();
 
@@ -62,6 +67,10 @@ function SettingsScreen({ navigation }) {
             /* empty */
           }
 
+          // empty database
+          await db.closeAsync();
+          await db.deleteAsync();
+
           AsyncStorage.clear();
 
           appctx.setLoggedIn(false);
@@ -69,6 +78,38 @@ function SettingsScreen({ navigation }) {
         },
       },
     ]);
+  }
+
+  async function emptyDatabaseAction() {
+    Alert.alert(
+      'Vider la base de données',
+      'Êtes-vous sûr de vouloir vider la base de données ?',
+      [
+        {
+          text: 'Annuler',
+          style: 'cancel',
+        },
+        {
+          text: 'Vider la base de données',
+          style: 'destructive',
+          onPress: async () => {
+            await db.closeAsync();
+            await db.deleteAsync();
+
+            Alert.alert(
+              'Base de données locale vidée',
+              'La base de données a été vidée avec succès !',
+              [
+                {
+                  text: 'OK',
+                  style: 'cancel',
+                },
+              ]
+            );
+          },
+        },
+      ]
+    );
   }
 
   const [tokenLoading, setTokenLoading] = useState(false);
@@ -222,6 +263,19 @@ function SettingsScreen({ navigation }) {
             </NativeText>
             <NativeText heading="p2">
               Regénerer le token de votre compte
+            </NativeText>
+          </NativeItem>
+
+          <NativeItem
+            leading={<Trash2 size={24} color={UIColors.text} />}
+            chevron
+            onPress={() => emptyDatabaseAction()}
+          >
+            <NativeText heading="h4">
+              Vider la base de données locale
+            </NativeText>
+            <NativeText heading="p2">
+              Supprime entièrement le contenu de la base de données locale
             </NativeText>
           </NativeItem>
         </NativeList>

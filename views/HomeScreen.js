@@ -45,6 +45,11 @@ import PapillonList from '../components/PapillonList';
 
 import { useAppContext } from '../utils/AppContext';
 
+// Fetch
+import * as BaseUser from '../database/BaseUser';
+import * as BaseTimetable from '../database/BaseTimetable';
+import * as BaseHomeworks from '../database/BaseHomeworks';
+
 // Functions
 const openURL = (url) => {
   const isURL = url.includes('http://') || url.includes('https://');
@@ -168,28 +173,9 @@ function NewHomeScreen({ navigation }) {
   }
 
   useEffect(() => {
-    // cache loads
-    AsyncStorage.getItem('appcache-user').then((value) => {
-      if (value) {
-        const data = JSON.parse(value);
-        setUser(data);
-        setLoadingUser(false);
-      }
-    });
-
-    AsyncStorage.getItem('appcache-homedata').then((value) => {
-      if (value) {
-        const data = JSON.parse(value);
-        applyLoadedData(data.homeworks, data.timetable);
-
-        setUsesCache(true);
-      }
-    });
-  }, []);
-
-  useEffect(() => {
     setLoadingUser(true);
-    appctx.dataprovider.getUser().then((data) => {
+
+    function applyUser(data) {
       const prenom = data.name.split(' ').pop();
       const establishment = data.establishment;
       const avatarURL = data.profile_picture;
@@ -197,8 +183,19 @@ function NewHomeScreen({ navigation }) {
       setFormattedUserData({ prenom, establishment, avatarURL });
       setUser(data);
       setLoadingUser(false);
+    }
 
-      AsyncStorage.setItem('appcache-user', JSON.stringify(data));
+    BaseUser.GetUser().then((data) => {
+      if(!data) {
+        appctx.dataprovider.getUser().then((data) => {
+          BaseUser.SyncUser(data).then(() => {
+            applyUser(data);
+          });
+        });
+      }
+      else {
+        applyUser(data);
+      }
     });
 
     let force = refreshCount > 0;
@@ -207,13 +204,32 @@ function NewHomeScreen({ navigation }) {
     setLoadingCours(true);
 
     Promise.all([
-      appctx.dataprovider.getHomeworks(today, force, new Date(today).setDate(today.getDate() + 7)).then(e=>e?.flat()),
-      appctx.dataprovider.getTimetable(today, force)
-    ]).then(([hwData, coursData]) => {
+      BaseTimetable.GetTimetable(today),
+      BaseHomeworks.GetHomeworks(today, new Date(today).setDate(today.getDate() + 7))
+    ]).then(([coursData, hwData]) => {
       applyLoadedData(hwData, coursData);
-      AsyncStorage.setItem('appcache-homedata', JSON.stringify({ homeworks: hwData, timetable: coursData }));
-      setUsesCache(false);
     });
+
+    try {
+      if(force || timetable.length === 0) {
+        Promise.all([
+          appctx.dataprovider.getHomeworks(today, force, new Date(today).setDate(today.getDate() + 7)).then(e=>e?.flat()),
+          appctx.dataprovider.getTimetable(today, force)
+        ]).then(async ([hwData, coursData]) => {
+          await BaseTimetable.SyncTimetable(coursData);
+          await BaseHomeworks.SyncHomeworks(hwData);
+
+          BaseTimetable.GetTimetable(today).then((coursData2) => {
+            BaseHomeworks.GetHomeworks(today, new Date(today).setDate(today.getDate() + 7)).then((hwData2) => {
+              applyLoadedData(hwData2, coursData2);
+            });
+          });
+        });
+      }
+    }
+    catch(e) {
+      console.log(e);
+    }
   }, [refreshCount]);
 
   useFocusEffect(
@@ -470,7 +486,7 @@ function CoursItem ({ cours, day, theme, UIColors, navigation, index }) {
               })}
             </Text>
           </View>
-          <View style={[styles.cours.item.color, {backgroundColor: getSavedCourseColor(cours.subject.name, cours.background_color)}]} />
+          <View style={[styles.cours.item.color, {backgroundColor: cours.subject.color}]} />
           <View style={styles.cours.item.data.container}>
             <Text style={[styles.cours.item.data.subject]}>
               {formatCoursName(cours.subject.name)}
@@ -483,7 +499,7 @@ function CoursItem ({ cours, day, theme, UIColors, navigation, index }) {
             </Text>
 
             { cours.status ? (
-              <Text style={[styles.cours.item.data.status, {backgroundColor: getSavedCourseColor(cours.subject.name, cours.background_color) + '22', color: getSavedCourseColor(cours.subject.name, cours.background_color)}]}>
+              <Text style={[styles.cours.item.data.status, {backgroundColor: cours.subject.color + '22', color: cours.subject.color}]}>
                 {cours.status}
               </Text>
             ) : null }
@@ -608,6 +624,13 @@ function DevoirsContent({ homework, theme, UIColors, navigation, index, parentIn
       }
       else if (result.status === 'ok') {
         setChecked(!checked);
+
+        BaseHomeworks.EditHomework({
+          ...homework,
+          done: !checked,
+        }).then((data) => {
+          console.log(data);
+        });
 
         // if tomorrow, update badge
         let tomorrow = new Date();
@@ -740,7 +763,7 @@ function DevoirsContent({ homework, theme, UIColors, navigation, index, parentIn
           <View style={styles.homeworks.devoirsContent.parent}>
             <View style={styles.homeworks.devoirsContent.header.container}>
               <View style={styles.homeworks.devoirsContent.header.subject.container}>
-                <View style={[styles.homeworks.devoirsContent.header.subject.color, {backgroundColor: getSavedCourseColor(homework.subject.name, homework.background_color)}]} />
+                <View style={[styles.homeworks.devoirsContent.header.subject.color, {backgroundColor: homework.subject.color}]} />
                 <Text style={[styles.homeworks.devoirsContent.header.subject.title, { color: UIColors.text }]}>{formatCoursName(homework.subject.name)}</Text>
               </View>
             </View>
@@ -882,7 +905,7 @@ function NextCours({ cours, navigation }) {
     <PressableScale
       style={[
         nextCoursStyles.nextCoursContainer,
-        { backgroundColor: getSavedCourseColor(cours.subject.name, cours.background_color) },
+        { backgroundColor: cours.subject.color },
       ]}
       onPress={openCours}
     >
@@ -1031,7 +1054,7 @@ function HomeHeader({ navigation, timetable, user }) {
         headerStyles.header,
         {
           backgroundColor: nextCourse
-            ? getColorCoursBg(getSavedCourseColor(nextCourse.subject.name, nextCourse.background_color))
+            ? getColorCoursBg(nextCourse.subject.color)
             : UIColors.primaryBackground,
           paddingTop: insets.top + 13,
           borderColor: theme.dark ? '#ffffff15' : '#00000032',

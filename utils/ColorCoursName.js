@@ -145,5 +145,9 @@ function forceSavedCourseColor(courseName, courseColor) {
   return color;
 }
 
+function getRandomColor() {
+  return colors[Math.floor(Math.random() * colors.length)];
+}
+
 export default getClosestColor;
-export { getClosestCourseColor, getSavedCourseColor, forceSavedCourseColor };
+export { getClosestCourseColor, getSavedCourseColor, forceSavedCourseColor, getRandomColor };
