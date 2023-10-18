@@ -936,8 +936,6 @@ function App() {
     };
 
     loadApp();
-
-    setBackgroundFetch();
   }, []);
 
   const [dataprovider, setDataprovider] = React.useState(null);	
