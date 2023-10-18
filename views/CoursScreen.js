@@ -1,31 +1,17 @@
-/* eslint-disable prettier/prettier */
-import * as React from 'react';
-import { useCallback, useState, useEffect, useRef } from 'react';
-import {
-  View,
-  StyleSheet,
-  StatusBar,
-  Platform,
-  ActivityIndicator,
-  RefreshControl,
-  TouchableOpacity,
-  Alert,
-} from 'react-native';
-import { useTheme, Text } from 'react-native-paper';
-
-import { ContextMenuView } from 'react-native-ios-context-menu';
-
-import { ScrollView } from 'react-native-gesture-handler';
-
-import { PressableScale } from 'react-native-pressable-scale';
-
+import React, { useState, useEffect, useCallback, useLayoutEffect } from 'react';
+import { View, StyleSheet, RefreshControl, Modal, Platform, TouchableOpacity, Pressable } from 'react-native';
 import InfinitePager from 'react-native-infinite-pager';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import GetUIColors from '../utils/GetUIColors';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import * as Notifications from 'expo-notifications';
+import { useAppContext } from '../utils/AppContext';
+import * as BaseTimetable from '../database/BaseTimetable';
 
-import * as Calendar from 'expo-calendar';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Text, useTheme } from 'react-native-paper';
+import { X } from 'lucide-react-native';
+
+import NetInfo from '@react-native-community/netinfo';
 
 import PapillonLoading from '../components/PapillonLoading';
 
@@ -38,404 +24,315 @@ import {
 } from 'lucide-react-native';
 
 import formatCoursName from '../utils/FormatCoursName';
-import { getClosestCourseColor, getSavedCourseColor } from '../utils/ColorCoursName';
-
 import getClosestGradeEmoji from '../utils/EmojiCoursName';
 
-import GetUIColors from '../utils/GetUIColors';
+import { ContextMenuView } from 'react-native-ios-context-menu';
+import { ScrollView } from 'react-native-gesture-handler';
+import { PressableScale } from 'react-native-pressable-scale';
 
-import ListItem from '../components/ListItem';
-
-import { useAppContext } from '../utils/AppContext';
-
-import * as BaseTimetable from '../database/BaseTimetable'; 
-
-const calcDate = (date, days) => {
-  const result = new Date(date);
-  result.setDate(result.getDate() + days);
-  return result;
-};
-
-function CoursScreen({ navigation }) {
+const CoursScreen = ({ navigation }) => {
+  const UIColors = GetUIColors();
+  const insets = useSafeAreaInsets();
   const theme = useTheme();
-  const pagerRef = useRef(null);
 
-  const [today, setToday] = useState(new Date());
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [showDatePicker, setShowDatePicker] = useState(false);
+
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [calendarDate, setCalendarDate] = useState(today);
-  const [cours, setCours] = useState({});
-  const todayRef = useRef(today);
-  const coursRef = useRef(cours);
 
-  const [calendarModalOpen, setCalendarModalOpen] = useState(false);
+  const [calendarDateStr, setCalendarDateStr] = useState('');
 
-  async function addToCalendar(cours) {
-
-      // get calendar permission
-      const { status } = await Calendar.requestCalendarPermissionsAsync();
-      if (status === 'granted') {
-        // for each cours
-        
-        cours.forEach(async (cours) => {
-          // get calendar
-          const calendars = await Calendar.getCalendarsAsync(Calendar.EntityTypes.EVENT);
-
-          // if Papillon-(cours.subject.name) calendar exists
-          let calendarId = null;
-
-          for (const calendar of calendars) {
-            if (calendar.title === `Papillon-${cours.subject.name}`) {
-              calendarId = calendar.id;
-              break;
-            }
-          }
-
-          // if not, create it
-          if (calendarId === null) {
-            await Calendar.createCalendarAsync({
-              title: `Papillon-${cours.subject.name}`,
-              color: getClosestCourseColor(cours.subject.name, cours.background_color),
-              entityType: Calendar.EntityTypes.EVENT,
-            });
-
-            // get calendar
-            const calendars = await Calendar.getCalendarsAsync(Calendar.EntityTypes.EVENT);
-
-            // get calendar id
-
-            for (const calendar of calendars) {
-              if (calendar.title === `Papillon-${cours.subject.name}`) {
-                calendarId = calendar.id;
-                break;
-              }
-            }
-          }
-          
-          // add event to calendar
-
-          if (!cours.is_cancelled) {
-            const event = await Calendar.createEventAsync(calendarId, {
-              startDate: new Date(cours.start),
-              endDate: new Date(cours.end),
-              title: cours.subject.name,
-              location: cours.rooms.join(', '),
-              notes: `
-                Professeur(s) : ${cours.teachers.length > 1 ? 's' : ''} : ${cours.teachers.join(', ')}
-Statut : ${cours.status || 'Aucun'}
-              `.trim(),
-              status: cours.is_cancelled ? 'CANCELED' : 'CONFIRMED',
-              organizer: cours.teachers[0],
-              creationDate: new Date(),
-              lastModifiedDate: new Date(),
-            });
-          }
-        });
-
-        // alert user
-        Alert.alert(
-          'Cours ajoutés au calendrier',
-          'Les cours ont été ajoutés au calendrier.',
-          [
-            {
-              text: 'OK',
-              style: 'cancel'
-            },
-          ]
-        );
-      }
-      else {
-        console.log('Permission refusée');
-        Alert.alert(
-          'Permission refusée',
-          'Vous devez autoriser l\'application à accéder à votre calendrier pour pouvoir ajouter des cours au calendrier.',
-          [
-            {
-              text: 'OK',
-              style: 'cancel'
-            },
-          ]
-        );
-      }
-  };
-
-  async function notifyAll(_cours) {
-    // for each cours
-    for (let i = 0; i < _cours.length; i++) {
-      const coursThis = _cours[i];
-      const identifier =
-        coursThis.subject.name + new Date(coursThis.start).getTime();
-
-      // if notification already exists
-      Notifications.getAllScheduledNotificationsAsync().then((value) => {
-        // if item.identifier is found in value
-        for (const item of value) {
-          if (item.identifier === identifier) {
-            // cancel it
-            Notifications.cancelScheduledNotificationAsync(identifier);
-            break;
-          }
-        }
-      });
-
-      const time = new Date(coursThis.start);
-      time.setMinutes(time.getMinutes() - 5);
-
-      // schedule notification
-      Notifications.scheduleNotificationAsync({
-        identifier,
-        content: {
-          title: `${getClosestGradeEmoji(coursThis.subject.name)} ${
-            coursThis.subject.name
-          } - Ça commence dans 5 minutes`,
-          body: `Le cours est en salle ${coursThis.rooms[0]} avec ${coursThis.teachers[0]}.`,
-          sound: 'papillon_ding.wav',
-        },
-        trigger: {
-          channelId: 'coursReminder',
-          date: new Date(time),
-        },
-      });
-    }
-
-    // alert user
-    Alert.alert(
-      'Notifications activées',
-      'Vous recevrez une notification pour chaque cours de la journée.',
-      [
-        {
-          text: 'OK',
-          style: 'cancel',
-        },
-      ]
-    );
-  }
-
-  React.useLayoutEffect(() => {
-    navigation.setOptions({
-      headerRight: () =>
-        Platform.OS === 'ios' ? (
-          <ContextMenuView
-            previewConfig={{
-              borderRadius: 8,
-            }}
-            menuConfig={{
-              menuTitle: calendarDate.toLocaleDateString('fr', {
-                weekday: 'long',
-                day: '2-digit',
-                month: 'long',
-                year: 'numeric',
-              }),
-              menuItems: [
-                {
-                  actionKey: 'addtoCalendar',
-                  actionTitle: 'Ajouter au calendrier',
-                  actionSubtitle:
-                    'Ajoute tous les cours de la journée au calendrier',
-                  icon: {
-                    type: 'IMAGE_SYSTEM',
-                    imageValue: {
-                      systemName: 'calendar.badge.plus',
-                    },
-                  },
-                },
-                {
-                  actionKey: 'notifyAll',
-                  actionTitle: 'Programmer les notifications',
-                  actionSubtitle: 'Vous notifiera 5 min. avant chaque cours',
-                  icon: {
-                    type: 'IMAGE_SYSTEM',
-                    imageValue: {
-                      systemName: 'bell.badge.fill',
-                    },
-                  },
-                },
-              ],
-            }}
-            onPressMenuItem={({ nativeEvent }) => {
-              if (nativeEvent.actionKey === 'addtoCalendar') {
-                addToCalendar(cours[calendarDate.toLocaleDateString()]);
-              } else if (nativeEvent.actionKey === 'notifyAll') {
-                notifyAll(cours[calendarDate.toLocaleDateString()]);
-              }
-            }}
-          >
-            <DateTimePicker
-              value={calendarDate}
-              locale="fr-FR"
-              mode="date"
-              display="compact"
-              onChange={(event, date) => {
-                setCalendarAndToday(date);
-                pagerRef.current.setPage(0);
-                if (currentIndex === 0) {
-                  setCurrentIndex(1);
-                  setTimeout(() => {
-                    setCurrentIndex(0);
-                  }, 10);
-                }
-              }}
-            />
-          </ContextMenuView>
-        ) : (
-          <TouchableOpacity
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: 6,
-              marginRight: 2,
-            }}
-            onPress={() => setCalendarModalOpen(true)}
-          >
-            <IconCalendar size={20} color={UIColors.text} />
-            <Text style={{ fontSize: 15, fontFamily: 'Papillon-Medium' }}>
-              {new Date(calendarDate).toLocaleDateString('fr', {
-                weekday: 'short',
-                day: '2-digit',
-                month: 'short',
-              })}
-            </Text>
-          </TouchableOpacity>
-        ),
-    });
-  }, [navigation, calendarDate]);
-
-  const setCalendarAndToday = (date) => {
-    setCalendarDate(date);
-    setToday(date);
-    setCalendarDate(date);
-    for (let i = -2; i <= 2; i++) {
-      updateCoursForDate(i, date);
-    }
-  };
+  const [courses, setCourses] = useState({});
 
   const appctx = useAppContext();
 
-  const updateCoursForDate = async (dateOffset, setDate) => {
-    const newDate = calcDate(setDate, dateOffset);
-    if (!coursRef.current[newDate.toLocaleDateString()]) {
-      // fetch database
-      const result = await BaseTimetable.GetTimetable(newDate);
-      setCours((prevCours) => ({
-        ...prevCours,
-        [newDate.toLocaleDateString()]: result,
-      }));
+  // button to show the date picker in the header
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerRight: () => (
+        <TouchableOpacity
+          style={[styles.daySelectTouchable, { backgroundColor: UIColors.text + '15' }]}
+          onPress={() => setShowDatePicker(true)}
+        >
+          <Text style={styles.daySelectText}>
+            {calendarDateStr}
+          </Text>
+        </TouchableOpacity>
+      ),
+    });
+  }, [navigation, setCalendarDateStr, UIColors.text]);
 
-      console.log('Fetched from database');
-      console.log(result);
+  const LoadCourses = async (date) => {
+    date = new Date(date);
+    return BaseTimetable.GetTimetable(date).then((data) => {
+      // Create a new copy of the courses object
+      const updatedCourses = { ...courses };
+      updatedCourses[date.toISOString()] = data;
 
-      // fetch api
-      try {
-        BaseTimetable.SyncTimetable(result).then(() => {
-          BaseTimetable.GetTimetable(newDate).then((value) => {
-            setCours((prevCours) => ({
-              ...prevCours,
-              [newDate.toLocaleDateString()]: value,
-            }));
-          });
+      // Set the updated courses as the state
+      setCourses(updatedCourses);
+      return data;
+    });
+  };
+
+  const ForceLoadCourses = async (date) => {
+    return appctx.dataprovider.getTimetable(date, true).then((data) => {
+      return BaseTimetable.SyncTimetable(data).then(() => {
+        return BaseTimetable.GetTimetable(date).then((data) => {
+          const updatedCourses = { ...courses };
+          updatedCourses[date.toISOString()] = data;
+
+          setCourses(updatedCourses);
+          return data;
         });
-      }
-      catch (e) {
-        console.log(e);
-      }
-    }
-  };
-
-  const handlePageChange = (page) => {
-    const newDate = calcDate(todayRef.current, page);
-    setCurrentIndex(page);
-    setCalendarDate(newDate);
-
-    for (let i = -2; i <= 2; i++) {
-      updateCoursForDate(i, newDate);
-    }
-  };
-
-  const forceRefresh = async () => {
-    const newDate = calcDate(calendarDate, 0);
-    const result = await appctx.dataprovider.getTimetable(newDate, true);
-
-    BaseTimetable.SyncTimetable(result).then(() => {
-      BaseTimetable.GetTimetable(newDate).then((value) => {
-        console.log('Fetched from API');
-        console.log(value);
-        
-        let newCours = cours;
-        newCours[newDate.toLocaleDateString()] = value;
-        setCours(newCours);
       });
     });
   };
 
-  useEffect(() => {
-    todayRef.current = today;
-    coursRef.current = cours;
-  }, [today, cours]);
+  const LoadAndForceCourses = async (date) => {
+    date = new Date(date);
+    return BaseTimetable.GetTimetable(date).then((data) => {
+      // Create a new copy of the courses object
+      const updatedCourses = { ...courses };
+      updatedCourses[date.toISOString()] = data;
+
+      // Set the updated courses as the state
+      setCourses(updatedCourses);
+
+      // if data is empty, force refresh
+      if (data.length === 0) {
+        return ForceLoadCourses(date);
+      }
+      else {
+        return data;
+      }
+    });
+  };
+
+  const handleDateChange = (event, selected) => {
+    if (event.type === 'set' && selected) {
+      const newDate = new Date(selected);
+      newDate.setDate(selected.getDate() - currentIndex);
+
+      setSelectedDate(newDate);
+      setShowDatePicker(false);
+      setCalendarDateStr(newDate.toLocaleDateString('fr-FR', {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+      }));
+
+      LoadAndForceCourses(newDate);
+    } else {
+      setShowDatePicker(false);
+    }
+  };
+
+  const handleScroll = (index) => {
+    setCurrentIndex(index);
+
+    const currentDate = new Date(selectedDate);
+    currentDate.setDate(selectedDate.getDate() + index);
+    LoadAndForceCourses(currentDate);
+    setCalendarDateStr(currentDate.toLocaleDateString('fr-FR', {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+    }));
+  };
+
+  return (
+    <View style={styles.container}>
+      <InfinitePager
+        style={[styles.viewPager]}
+        pageWrapperStyle={[styles.pageWrapper]}
+        horizontal
+        data={[
+          { key: 'page1' },
+          { key: 'page2' },
+          { key: 'page3' },
+          // Add more pages as needed
+        ]}
+        renderPage={({ index }) => (
+          <CoursPage
+            index={index}
+            selectedDate={selectedDate}
+            setShowDatePicker={setShowDatePicker}
+            courses={courses}
+            navigation={navigation}
+            theme={theme}
+            forceRefresh={() => ForceLoadCourses(selectedDate)}
+          />
+        )}
+        onPageChange={(index) => handleScroll(index)}
+      />
+
+      <Modal
+        visible={showDatePicker}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        transparent
+      >
+        <Pressable
+          style={{ flex: 1 }}
+          onPress={() => setShowDatePicker(false)}
+        />
+        <View style={[
+          Platform.OS === 'ios' ? styles.modalIos : styles.modalAndroid,
+          { backgroundColor: UIColors.element }
+        ]}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalHeaderText}>Sélectionnez la date</Text>
+            <Text style={styles.modalHeaderDate}>
+              {selectedDate.toLocaleDateString('fr-FR', {
+                weekday: 'long',
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+              })}
+            </Text>
+            <TouchableOpacity
+              style={{ position: 'absolute', right: 20, top: 16, backgroundColor: '#ffffff22', padding: 6, borderRadius: 20 }}
+              onPress={() => setShowDatePicker(false)}
+            >
+              <X size={24} color="#fff" />
+            </TouchableOpacity>
+          </View>
+          <DatePicker
+            selectedDate={selectedDate}
+            handleDateChange={handleDateChange}
+            currentIndex={currentIndex}
+          />
+          { Platform.OS === 'ios' && (
+            <View style={{ height: insets.bottom * 1.5 }} />
+          )}
+        </View>
+      </Modal>
+    </View>
+  );
+};
+
+function DatePicker({ selectedDate, handleDateChange, currentIndex }) {
+  const newDate = new Date(selectedDate);
+  newDate.setDate(selectedDate.getDate() + currentIndex);
+
+  return (
+    <DateTimePicker
+      value={newDate}
+      mode="date"
+      display={Platform.OS === 'ios' ? 'inline' : 'calendar'}
+      onChange={handleDateChange}
+      accentColor="#29947a"
+    />
+  );
+}
+
+function CoursPage({ index, selectedDate, setShowDatePicker, courses, navigation, theme, forceRefresh }) {
+  const calculatedDate = new Date(selectedDate);
+  calculatedDate.setDate(selectedDate.getDate() + index);
+
+  return (
+    <CoursView
+      cours={courses[calculatedDate.toISOString()] || []}
+      navigation={navigation}
+      theme={theme}
+      forceRefresh={forceRefresh}
+    />
+  );
+}
+
+function CoursView({ cours, navigation, theme, forceRefresh }) {
+  const CoursPressed = useCallback(
+    (_cours) => {
+      navigation.navigate('Lesson', { event: _cours });
+    },
+    [navigation]
+  );
+
+  const [isHeadLoading, setIsHeadLoading] = useState(false);
+
+  const onRefresh = React.useCallback(() => {
+    setIsHeadLoading(true);
+
+    forceRefresh().then(() => {
+      setIsHeadLoading(false);
+    });
+  }, []);
+
+  function lz(nb) {
+    return nb < 10 ? `0${nb}` : nb;
+  }
 
   const UIColors = GetUIColors();
 
   return (
-    <View
-      contentInsetAdjustmentBehavior="automatic"
-      style={[styles.container, { backgroundColor: UIColors.background }]}
+    <ScrollView
+      style={[styles.coursContainer]}
+      nestedScrollEnabled
+      refreshControl={
+        <RefreshControl
+          refreshing={isHeadLoading}
+          onRefresh={onRefresh}
+          colors={[Platform.OS === 'android' ? '#29947A' : null]}
+        />
+      }
     >
-      {Platform.OS === 'android' && calendarModalOpen ? (
-        <DateTimePicker
-          value={calendarDate}
-          locale="fr_FR"
-          mode="date"
-          display="calendar"
-          onChange={(event, date) => {
-            if (event.type === 'dismissed') {
-              setCalendarModalOpen(false);
-              return;
-            }
-
-            setCalendarModalOpen(false);
-
-            setCalendarAndToday(date);
-            pagerRef.current.setPage(0);
-            if (currentIndex === 0) {
-              setCurrentIndex(1);
-              setTimeout(() => {
-                setCurrentIndex(0);
-              }, 10);
-            }
-          }}
+      {cours.length === 0 ? (
+        <PapillonLoading
+          icon={<IconCalendar size={26} color={UIColors.text} />}
+          title="Aucun cours"
+          subtitle="Vous n'avez aucun cours aujourd'hui"
+          style={{ marginTop: 36 }}
         />
       ) : null}
 
-      <StatusBar
-        animated
-        barStyle={theme.dark ? 'light-content' : 'dark-content'}
-        backgroundColor="transparent"
-      />
+      {cours.map((_cours, index) => (
+        <View key={index}>
+          {/* si le cours précédent était il y a + de 30 min du cours actuel */}
+          {index !== 0 &&
+          new Date(_cours.start) - new Date(cours[index - 1].end) > 1800000 ? (
+            <View style={styles.coursSeparator}>
+              <View
+                style={[
+                  styles.coursSeparatorLine,
+                  { backgroundColor: `${UIColors.text}15` },
+                ]}
+              />
 
-      <InfinitePager
-        style={[styles.viewPager]}
-        pageWrapperStyle={[styles.pageWrapper]}
-        onPageChange={handlePageChange}
-        ref={pagerRef}
-        pageBuffer={4}
-        gesturesDisabled={false}
-        renderPage={({ index }) =>
-          cours[calcDate(today, index).toLocaleDateString()] ? (
-            <CoursPage
-              cours={cours[calcDate(today, index).toLocaleDateString()] || []}
-              navigation={navigation}
-              theme={theme}
-              forceRefresh={forceRefresh}
-            />
-          ) : (
-            <View style={[styles.coursContainer]}>
-              <PapillonLoading
-                title="Chargement des cours..."
-                subtitle="Obtention des cours en cours"
+              <Text style={{ color: `${UIColors.text}30` }}>
+                {`${Math.floor(
+                  (new Date(_cours.start) - new Date(cours[index - 1].end)) /
+                    3600000
+                )} h ${lz(
+                  Math.floor(
+                    ((new Date(_cours.start) - new Date(cours[index - 1].end)) %
+                      3600000) /
+                      60000
+                  )
+                )} min`}
+              </Text>
+
+              <View
+                style={[
+                  styles.coursSeparatorLine,
+                  { backgroundColor: `${UIColors.text}15` },
+                ]}
               />
             </View>
-          )
-        }
-      />
-    </View>
+          ) : null}
+
+          <CoursItem
+            key={index}
+            cours={_cours}
+            theme={theme}
+            navigation={navigation}
+            CoursPressed={CoursPressed}
+          />
+        </View>
+      ))}
+
+      <View style={{ height: 12 }} />
+    </ScrollView>
   );
 }
 
@@ -597,10 +494,7 @@ const CoursItem = React.memo(({ cours, theme, CoursPressed, navigation }) => {
             style={[
               styles.coursItem,
               {
-                backgroundColor: `${getSavedCourseColor(
-                  cours.subject.name,
-                  cours.background_color
-                )}22`,
+                backgroundColor: `${cours.subject.color}22`,
               },
             ]}
           >
@@ -608,10 +502,7 @@ const CoursItem = React.memo(({ cours, theme, CoursPressed, navigation }) => {
               style={[
                 styles.coursColor,
                 {
-                  backgroundColor: getSavedCourseColor(
-                    cours.subject.name,
-                    cours.background_color
-                  ),
+                  backgroundColor: cours.subject.color,
                 },
               ]}
             />
@@ -643,10 +534,7 @@ const CoursItem = React.memo(({ cours, theme, CoursPressed, navigation }) => {
                   style={[
                     styles.coursStatus,
                     {
-                      backgroundColor: `${getSavedCourseColor(
-                        cours.subject.name,
-                        cours.background_color
-                      )}22`,
+                      backgroundColor: `${cours.subject.color}22`,
                     },
                     cours.is_cancelled ? styles.coursStatusCancelled : null,
                   ]}
@@ -680,101 +568,6 @@ const CoursItem = React.memo(({ cours, theme, CoursPressed, navigation }) => {
     </View>
   );
 });
-
-function CoursPage({ cours, navigation, theme, forceRefresh }) {
-  const CoursPressed = useCallback(
-    (_cours) => {
-      navigation.navigate('Lesson', { event: _cours });
-    },
-    [navigation]
-  );
-
-  const [isHeadLoading, setIsHeadLoading] = useState(false);
-
-  const onRefresh = React.useCallback(() => {
-    setIsHeadLoading(true);
-
-    forceRefresh().then(() => {
-      setIsHeadLoading(false);
-    });
-  }, []);
-
-  function lz(nb) {
-    return nb < 10 ? `0${nb}` : nb.toString();
-  }
-
-  const UIColors = GetUIColors();
-
-  return (
-    <ScrollView
-      style={[styles.coursContainer]}
-      nestedScrollEnabled
-      refreshControl={
-        <RefreshControl
-          refreshing={isHeadLoading}
-          onRefresh={onRefresh}
-          colors={[Platform.OS === 'android' ? '#29947A' : null]}
-        />
-      }
-    >
-      {cours.length === 0 ? (
-        <PapillonLoading
-          icon={<IconCalendar size={26} color={UIColors.text} />}
-          title="Aucun cours"
-          subtitle="Vous n'avez aucun cours aujourd'hui"
-          style={{ marginTop: 36 }}
-        />
-      ) : null}
-
-      {cours.map((_cours, index) => (
-        <View key={index}>
-          {/* si le cours précédent était il y a + de 30 min du cours actuel */}
-          {index !== 0 &&
-          new Date(_cours.start) - new Date(cours[index - 1].end) > 1800000 ? (
-            <View style={styles.coursSeparator}>
-              <View
-                style={[
-                  styles.coursSeparatorLine,
-                  { backgroundColor: `${UIColors.text}15` },
-                ]}
-              />
-
-              <Text style={{ color: `${UIColors.text}30` }}>
-                {`${Math.floor(
-                  (new Date(_cours.start) - new Date(cours[index - 1].end)) /
-                    3600000
-                )} h ${lz(
-                  Math.floor(
-                    ((new Date(_cours.start) - new Date(cours[index - 1].end)) %
-                      3600000) /
-                      60000
-                  )
-                )} min`}
-              </Text>
-
-              <View
-                style={[
-                  styles.coursSeparatorLine,
-                  { backgroundColor: `${UIColors.text}15` },
-                ]}
-              />
-            </View>
-          ) : null}
-
-          <CoursItem
-            key={index}
-            cours={_cours}
-            theme={theme}
-            navigation={navigation}
-            CoursPressed={CoursPressed}
-          />
-        </View>
-      ))}
-
-      <View style={{ height: 12 }} />
-    </ScrollView>
-  );
-}
 
 const styles = StyleSheet.create({
   container: {
@@ -915,6 +708,44 @@ const styles = StyleSheet.create({
     display: 'flex',
     flexDirection: 'column',
     gap: 9,
+  },
+
+  modalIos: {
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    overflow: 'hidden',
+  },
+  modalAndroid: {
+    flex: 1,
+  },
+
+  modalHeader: {
+    padding: 16,
+    paddingHorizontal: 20,
+    backgroundColor: '#29947a',
+  },
+
+  modalHeaderText: {
+    fontSize: 15,
+    fontWeight: 500,
+    color: '#ffffff99',
+  },
+
+  modalHeaderDate: {
+    fontSize: 17,
+    fontWeight: 600,
+    color: '#fff',
+    fontFamily: 'Papillon-Semibold',
+  },
+
+  daySelectTouchable: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 7,
+    borderCurve: 'continuous',
+  },
+  daySelectText: {
+    fontSize: 17,
   },
 });
 

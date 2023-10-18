@@ -281,6 +281,7 @@ function NewHomeScreen({ navigation }) {
       <View style={{ height: 32 }} />
       <TabsElement navigation={navigation} theme={theme} UIColors={UIColors} />
 
+      
       <CoursElement
         cours={timetable}
         theme={theme}
