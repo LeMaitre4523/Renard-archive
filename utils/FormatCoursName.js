@@ -16,6 +16,13 @@ const formatExceptions = {
   'sc.econo & sociales': 'Sciences économiques et sociales',
   'histoire & geograph.': 'Histoire-Géo',
   'sc.numeriq.technol.': 'Sciences Numériques et Technologie',
+  'culture gene.et expr': 'Culture Générale et Expression',
+  'maths pour informatq': 'Mathématiques pour l\'informatique',
+  'cult.eco jur. manag.': 'Culture économique, juridique et managériale',
+  'cul.eco.jur.man.app.': 'Culture économique, juridique et managériale appliquée',
+  'at. professionnalis.': 'Atelier professionnalisant',
+  'bloc 2 slam': 'Bloc 2 Solutions Logicielles et Applications Métiers '
+  
 };
 
 const lengthExceptions = ['vie', 'de', 'et', 'la'];
