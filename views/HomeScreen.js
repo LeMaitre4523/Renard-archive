@@ -17,6 +17,7 @@ import {
   Platform,
   StatusBar,
   TouchableOpacity,
+  TextInput,
 } from 'react-native';
 import { useEffect, useState, useRef } from 'react';
 
@@ -45,6 +46,7 @@ import PapillonList from '../components/PapillonList';
 
 import { useAppContext } from '../utils/AppContext';
 import sendToSharedGroup from '../fetch/SharedValues';
+import sendToAppleWatch from '../fetch/SharedToAppleWatch';
 
 // Functions
 const openURL = (url) => {
@@ -102,6 +104,7 @@ function NewHomeScreen({ navigation }) {
   const [usesCache, setUsesCache] = useState(false);
 
   const today = new Date();
+  // today.setDate(today.getDate() - 17);
 
   const applyLoadedData = (hwData, coursData) => {
     const groupedHomeworks = hwData.reduce((grouped, homework) => {
@@ -168,6 +171,8 @@ function NewHomeScreen({ navigation }) {
     setLoadingCours(false);
 
     sendToSharedGroup(coursData);
+    sendToAppleWatch(coursData, result);
+    console.log("result : " + Object.values(groupedHomeworks));
   }
 
   useEffect(() => {
@@ -217,6 +222,8 @@ function NewHomeScreen({ navigation }) {
       AsyncStorage.setItem('appcache-homedata', JSON.stringify({ homeworks: hwData, timetable: coursData }));
       setUsesCache(false);
     });
+
+
   }, [refreshCount]);
 
   useFocusEffect(
